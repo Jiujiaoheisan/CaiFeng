@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>裁档 · 衣样档案</title>
+
+<!-- PWA 配置：可安装、应用图标、主题色 -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#222B3E">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="裁档">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F3EFE6;
+  --paper-deep:#EAE3D3;
+  --ink:#2B3344;
+  --ink-soft:#5B6478;
+  --indigo:#33415C;
+  --indigo-deep:#222B3E;
+  --copper:#B5683A;
+  --copper-soft:#D98E5F;
+  --pin:#C4432F;
+  --line:#D8CFB9;
+  --card:#FBF9F3;
+  --archive-bg:#E5E0D2;
+  --shadow: 0 1px 0 rgba(43,51,68,0.06);
+  --radius: 3px;
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;height:100%;}
+body{
+  font-family:'Noto Sans SC', sans-serif;
+  background:var(--paper);
+  color:var(--ink);
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;
+}
+
+/* texture */
+body::before{
+  content:"";
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(43,51,68,0.015) 0px, rgba(43,51,68,0.015) 1px, transparent 1px, transparent 3px);
+  z-index:0;
+}
+
+.app{
+  position:relative;
+  z-index:1;
+  height:100vh;
+  display:flex;
+  flex-direction:column;
+}
+
+/* ===== Header ===== */
+.topbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:14px 20px;
+  border-bottom:1px solid var(--line);
+  background:var(--paper);
+  flex-shrink:0;
+}
+.brand{
+  display:flex;
+  align-items:baseline;
+  gap:10px;
+}
+.brand .mark{
+  font-family:'Noto Serif SC', serif;
+  font-weight:700;
+  font-size:20px;
+  color:var(--indigo-deep);
+  letter-spacing:0.5px;
+}
+.brand .sub{
+  font-size:11px;
+  color:var(--ink-soft);
+  letter-spacing:2px;
+  text-transform:uppercase;
+  border-left:1px solid var(--line);
+  padding-left:10px;
+}
+.topbar-actions{
+  display:flex;
+  gap:8px;
+}
+.icon-btn{
+  width:36px;height:36px;
+  border:1px solid var(--line);
+  background:var(--card);
+  border-radius:var(--radius);
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;
+  color:var(--ink);
+  transition:border-color .15s, background .15s;
+}
+.icon-btn:hover{border-color:var(--indigo); background:#fff;}
+.icon-btn svg{width:17px;height:17px;}
+
+/* ===== Layout ===== */
+.main{
+  flex:1;
+  display:flex;
+  min-height:0;
+  overflow:hidden;
+}
+
+/* ----- LEFT: image rail ----- */
+.image-pane{
+  width:38%;
+  min-width:260px;
+  max-width:520px;
+  border-right:1px solid var(--line);
+  display:flex;
+  flex-direction:column;
+  background:var(--paper);
+  min-height:0;
+}
+.pane-head{
+  padding:14px 18px 10px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  flex-shrink:0;
+}
+.pane-title{
+  font-family:'Noto Serif SC', serif;
+  font-weight:600;
+  font-size:14px;
+  color:var(--indigo-deep);
+  letter-spacing:1px;
+}
+.pane-count{
+  font-size:11px;
+  color:var(--ink-soft);
+}
+.add-btn{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:7px 12px;
+  background:var(--indigo);
+  color:#fff;
+  border:none;
+  border-radius:var(--radius);
+  font-size:12.5px;
+  font-weight:500;
+  cursor:pointer;
+  letter-spacing:0.3px;
+  transition:background .15s;
+}
+.add-btn:hover{background:var(--indigo-deep);}
+.add-btn svg{width:14px;height:14px;}
+
+.search-row{
+  padding:0 18px 12px;
+  flex-shrink:0;
+}
+.search-row input{
+  width:100%;
+  padding:8px 10px;
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  background:var(--card);
+  font-size:12.5px;
+  font-family:inherit;
+  color:var(--ink);
+}
+.search-row input:focus{outline:none; border-color:var(--indigo);}
+.search-row input::placeholder{color:#A6A18F;}
+
+.image-list{
+  flex:1;
+  overflow-y:auto;
+  padding:0 14px 18px;
+  min-height:0;
+}
+.image-list::-webkit-scrollbar{width:8px;}
+.image-list::-webkit-scrollbar-thumb{background:var(--line); border-radius:4px;}
+.image-list::-webkit-scrollbar-track{background:transparent;}
+
+.section-label{
+  font-size:11px;
+  letter-spacing:1.5px;
+  text-transform:uppercase;
+  color:var(--ink-soft);
+  margin:14px 4px 8px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.section-label::after{
+  content:"";
+  flex:1;
+  height:1px;
+  background:var(--line);
+}
+.section-label.pending{color:var(--pin);}
+.section-label.pending::before{
+  content:"";
+  width:6px;height:6px;
+  border-radius:50%;
+  background:var(--pin);
+  display:inline-block;
+}
+
+.card{
+  display:flex;
+  gap:10px;
+  padding:9px;
+  margin-bottom:7px;
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  cursor:pointer;
+  position:relative;
+  transition:border-color .15s, transform .1s;
+  box-shadow:var(--shadow);
+}
+.card:hover{border-color:var(--indigo);}
+.card.active{
+  border-color:var(--indigo);
+  background:#fff;
+  box-shadow:0 0 0 1px var(--indigo);
+}
+.card.archived{
+  background:var(--archive-bg);
+  opacity:0.72;
+}
+.card.archived:hover{opacity:0.9;}
+
+.card-thumb{
+  width:52px;height:52px;
+  border-radius:2px;
+  background:#fff;
+  border:1px solid var(--line);
+  flex-shrink:0;
+  overflow:hidden;
+  display:flex;align-items:center;justify-content:center;
+}
+.card-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+.card-thumb .placeholder{color:#C7C1AC; width:20px;height:20px;}
+
+.card-body{
+  flex:1;
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:3px;
+}
+.card-name{
+  font-size:13.5px;
+  font-weight:600;
+  color:var(--ink);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.card-meta{
+  font-size:11.5px;
+  color:var(--ink-soft);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.card-pin{
+  position:absolute;
+  top:-5px;
+  right:6px;
+  background:var(--pin);
+  color:#fff;
+  font-size:9.5px;
+  font-weight:700;
+  letter-spacing:0.5px;
+  padding:2px 6px;
+  border-radius:2px;
+  box-shadow:0 1px 2px rgba(0,0,0,0.2);
+}
+.card-archived-tag{
+  position:absolute;
+  top:-5px;
+  right:6px;
+  background:var(--ink-soft);
+  color:#fff;
+  font-size:9.5px;
+  padding:2px 6px;
+  border-radius:2px;
+  letter-spacing:0.5px;
+}
+
+.empty-state{
+  text-align:center;
+  padding:50px 20px;
+  color:var(--ink-soft);
+}
+.empty-state svg{width:40px;height:40px; color:#CFC8B3; margin-bottom:10px;}
+.empty-state p{font-size:13px; margin:0 0 4px;}
+.empty-state .hint{font-size:11.5px; color:#A6A18F;}
+
+/* ----- RIGHT: data pane ----- */
+.data-pane{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+  background:var(--paper-deep);
+}
+.data-scroll{
+  flex:1;
+  overflow-y:auto;
+  padding:24px 32px 40px;
+}
+.data-scroll::-webkit-scrollbar{width:8px;}
+.data-scroll::-webkit-scrollbar-thumb{background:var(--line); border-radius:4px;}
+.data-scroll::-webkit-scrollbar-track{background:transparent;}
+
+.data-empty{
+  height:100%;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  color:var(--ink-soft);
+  text-align:center;
+}
+.data-empty svg{width:54px;height:54px;color:#CFC8B3;margin-bottom:14px;}
+.data-empty h3{font-family:'Noto Serif SC',serif; font-size:16px; color:var(--ink); margin:0 0 6px; font-weight:600;}
+.data-empty p{font-size:13px; margin:0; max-width:280px; line-height:1.6;}
+
+.record-header{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom:6px;
+}
+.record-photo-row{
+  display:flex;
+  gap:16px;
+  margin-bottom:22px;
+  align-items:flex-start;
+}
+.record-photo{
+  width:130px;
+  height:130px;
+  border-radius:3px;
+  background:var(--card);
+  border:1px solid var(--line);
+  flex-shrink:0;
+  overflow:hidden;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;
+  position:relative;
+  transition:border-color .15s;
+}
+.record-photo:hover{border-color:var(--indigo);}
+.record-photo::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:rgba(34,43,62,0);
+  transition:background .15s;
+}
+.record-photo:hover::after{background:rgba(34,43,62,0.06);}
+.record-photo .zoom-hint{
+  position:absolute;
+  bottom:4px;
+  right:4px;
+  width:20px;height:20px;
+  background:rgba(34,43,62,0.6);
+  border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  pointer-events:none;
+}
+.record-photo .zoom-hint svg{width:12px;height:12px;color:#fff;}
+.record-photo img{width:100%;height:100%;object-fit:cover;display:block;}
+.record-photo .placeholder{width:28px;height:28px;color:#C7C1AC;}
+
+.record-title-block{flex:1; min-width:0; padding-top:4px;}
+.status-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:0.5px;
+  padding:4px 9px;
+  border-radius:2px;
+  margin-bottom:10px;
+}
+.status-chip.pending{background:rgba(196,67,47,0.12); color:var(--pin);}
+.status-chip.pending .dot{width:5px;height:5px;border-radius:50%;background:var(--pin);}
+.status-chip.done{background:rgba(91,100,120,0.12); color:var(--ink-soft);}
+.status-chip.done .dot{width:5px;height:5px;border-radius:50%;background:var(--ink-soft);}
+
+.record-title-block h2{
+  font-family:'Noto Serif SC', serif;
+  font-size:22px;
+  font-weight:700;
+  margin:0 0 4px;
+  color:var(--indigo-deep);
+}
+.record-title-block .subline{
+  font-size:12.5px;
+  color:var(--ink-soft);
+}
+
+.record-actions{
+  display:flex;
+  gap:8px;
+  flex-shrink:0;
+}
+.btn{
+  padding:8px 14px;
+  border-radius:var(--radius);
+  font-size:12.5px;
+  font-weight:500;
+  cursor:pointer;
+  border:1px solid var(--line);
+  background:var(--card);
+  color:var(--ink);
+  transition:all .15s;
+  display:flex;align-items:center;gap:6px;
+}
+.btn svg{width:13px;height:13px;}
+.btn:hover{border-color:var(--indigo);}
+.btn-archive{background:var(--copper); color:#fff; border-color:var(--copper);}
+.btn-archive:hover{background:#9C5530;}
+.btn-archive.is-archived{background:var(--card); color:var(--ink-soft); border-color:var(--line);}
+.btn-archive.is-archived:hover{border-color:var(--ink-soft);}
+.btn-danger{color:var(--pin);}
+.btn-danger:hover{border-color:var(--pin); background:rgba(196,67,47,0.06);}
+
+.field-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:14px;
+  margin-bottom:8px;
+}
+.field-grid.full{grid-template-columns:1fr;}
+.field{
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  padding:10px 13px;
+}
+.field label{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  font-size:10.5px;
+  letter-spacing:0.8px;
+  text-transform:uppercase;
+  color:var(--ink-soft);
+  margin-bottom:5px;
+}
+.field label .remove-field{
+  cursor:pointer;
+  color:#C7C1AC;
+  font-size:13px;
+  line-height:1;
+}
+.field label .remove-field:hover{color:var(--pin);}
+.field input, .field textarea{
+  width:100%;
+  border:none;
+  background:transparent;
+  font-family:'Noto Sans SC', sans-serif;
+  font-size:14px;
+  color:var(--ink);
+  padding:0;
+  resize:vertical;
+}
+.field input:focus, .field textarea:focus{outline:none;}
+.field input::placeholder, .field textarea::placeholder{color:#B8B2A0;}
+.field.date input{font-family:'Noto Sans SC',sans-serif;}
+
+.fields-section{margin-top:26px;}
+.fields-section-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom:12px;
+}
+.fields-section-head .label{
+  font-family:'Noto Serif SC', serif;
+  font-size:13.5px;
+  font-weight:600;
+  color:var(--indigo-deep);
+  letter-spacing:0.5px;
+}
+.add-field-btn{
+  font-size:12px;
+  color:var(--indigo);
+  background:none;
+  border:none;
+  cursor:pointer;
+  display:flex;align-items:center;gap:4px;
+  padding:4px 8px;
+  border-radius:2px;
+}
+.add-field-btn:hover{background:rgba(51,65,92,0.08);}
+.add-field-btn svg{width:12px;height:12px;}
+
+.divider{
+  height:1px;
+  background:var(--line);
+  margin:24px 0;
+}
+
+/* ===== Toolbar bottom (mobile tabs) ===== */
+.mobile-tabs{
+  display:none;
+  border-top:1px solid var(--line);
+  background:var(--paper);
+  flex-shrink:0;
+}
+.mobile-tabs button{
+  flex:1;
+  padding:11px 0;
+  background:none;
+  border:none;
+  font-size:12.5px;
+  font-weight:600;
+  color:var(--ink-soft);
+  cursor:pointer;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:3px;
+  letter-spacing:0.3px;
+}
+.mobile-tabs button.active{color:var(--indigo-deep);}
+.mobile-tabs button svg{width:18px;height:18px;}
+
+/* ===== Modal ===== */
+.modal-overlay{
+  position:fixed;
+  inset:0;
+  background:rgba(34,43,62,0.45);
+  display:none;
+  align-items:center;
+  justify-content:center;
+  z-index:50;
+  padding:20px;
+}
+.modal-overlay.show{display:flex;}
+.modal{
+  background:var(--card);
+  border-radius:4px;
+  width:100%;
+  max-width:420px;
+  max-height:85vh;
+  overflow-y:auto;
+  box-shadow:0 12px 40px rgba(0,0,0,0.25);
+}
+.modal-head{
+  padding:18px 22px;
+  border-bottom:1px solid var(--line);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+}
+.modal-head h3{
+  font-family:'Noto Serif SC', serif;
+  font-size:16px;
+  margin:0;
+  color:var(--indigo-deep);
+}
+.modal-close{
+  cursor:pointer;
+  color:var(--ink-soft);
+  font-size:20px;
+  line-height:1;
+  background:none;border:none;
+}
+.modal-body{padding:20px 22px;}
+.modal-foot{
+  padding:14px 22px;
+  border-top:1px solid var(--line);
+  display:flex;
+  justify-content:flex-end;
+  gap:10px;
+}
+.modal-body .field{margin-bottom:12px;}
+.modal-body input[type=file]{
+  width:100%;
+  padding:20px;
+  border:1.5px dashed var(--line);
+  border-radius:var(--radius);
+  background:var(--paper);
+  font-size:12.5px;
+  text-align:center;
+  cursor:pointer;
+}
+.modal-body .upload-zone{
+  border:1.5px dashed var(--line);
+  border-radius:var(--radius);
+  background:var(--paper);
+  padding:24px;
+  text-align:center;
+  cursor:pointer;
+  transition:border-color .15s;
+  position:relative;
+}
+.modal-body .upload-zone:hover{border-color:var(--indigo);}
+.modal-body .upload-zone svg{width:28px;height:28px;color:var(--ink-soft); margin-bottom:8px;}
+.modal-body .upload-zone p{font-size:12.5px; color:var(--ink-soft); margin:0;}
+.modal-body .upload-zone input{
+  position:absolute; inset:0; opacity:0; cursor:pointer;
+}
+.upload-preview{
+  width:100%;
+  max-height:180px;
+  object-fit:contain;
+  border-radius:2px;
+  display:block;
+  margin:0 auto;
+}
+.btn-primary{
+  background:var(--indigo);
+  color:#fff;
+  border:1px solid var(--indigo);
+}
+.btn-primary:hover{background:var(--indigo-deep);}
+.btn-ghost{
+  background:none;
+  border:1px solid var(--line);
+  color:var(--ink-soft);
+}
+
+.toast{
+  position:fixed;
+  bottom:24px;
+  left:50%;
+  transform:translateX(-50%) translateY(10px);
+  background:var(--indigo-deep);
+  color:#fff;
+  font-size:13px;
+  padding:10px 18px;
+  border-radius:4px;
+  box-shadow:0 4px 16px rgba(0,0,0,0.2);
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .2s, transform .2s;
+  z-index:100;
+}
+.toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+
+/* ===== Image Viewer / Ruler ===== */
+.viewer-overlay{
+  position:fixed;
+  top:0; left:0; right:0;
+  height:100vh;
+  height:100dvh;
+  background:#1B2030;
+  display:none;
+  flex-direction:column;
+  z-index:200;
+}
+.viewer-overlay.show{display:flex;}
+
+.viewer-topbar{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px 14px;
+  background:#222B3E;
+  border-bottom:1px solid rgba(255,255,255,0.08);
+  flex-shrink:0;
+  flex-wrap:wrap;
+}
+.viewer-close{
+  width:34px;height:34px;
+  border-radius:3px;
+  border:1px solid rgba(255,255,255,0.18);
+  background:rgba(255,255,255,0.05);
+  color:#EFEAE0;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;
+  flex-shrink:0;
+}
+.viewer-close:hover{background:rgba(255,255,255,0.12);}
+.viewer-close svg{width:16px;height:16px;}
+.viewer-title{
+  color:#EFEAE0;
+  font-size:13px;
+  font-weight:600;
+  margin-right:auto;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.viewer-tools{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex-wrap:wrap;
+}
+.vtool-btn{
+  padding:7px 11px;
+  font-size:12px;
+  font-weight:500;
+  color:#EFEAE0;
+  background:rgba(255,255,255,0.06);
+  border:1px solid rgba(255,255,255,0.16);
+  border-radius:3px;
+  cursor:pointer;
+  display:flex;align-items:center;gap:5px;
+  white-space:nowrap;
+}
+.vtool-btn:hover{background:rgba(255,255,255,0.14);}
+.vtool-btn.active{background:var(--copper); border-color:var(--copper); color:#fff;}
+.vtool-btn svg{width:13px;height:13px;}
+.vtool-zoom-group{
+  display:flex;
+  align-items:center;
+  gap:0;
+  border:1px solid rgba(255,255,255,0.16);
+  border-radius:3px;
+  overflow:hidden;
+}
+.vtool-zoom-group button{
+  width:30px;height:30px;
+  background:rgba(255,255,255,0.06);
+  border:none;
+  color:#EFEAE0;
+  cursor:pointer;
+  font-size:15px;
+  display:flex;align-items:center;justify-content:center;
+}
+.vtool-zoom-group button:hover{background:rgba(255,255,255,0.16);}
+.vtool-zoom-label{
+  width:52px;
+  text-align:center;
+  font-size:11.5px;
+  color:#C9C3B4;
+  background:rgba(255,255,255,0.03);
+  height:30px;
+  display:flex;align-items:center;justify-content:center;
+}
+.vtool-unit-toggle{
+  display:flex;
+  border:1px solid rgba(255,255,255,0.16);
+  border-radius:3px;
+  overflow:hidden;
+}
+.vtool-unit-toggle button{
+  padding:7px 10px;
+  font-size:11.5px;
+  background:rgba(255,255,255,0.04);
+  border:none;
+  color:#C9C3B4;
+  cursor:pointer;
+}
+.vtool-unit-toggle button.active{background:var(--indigo); color:#fff;}
+
+.viewer-body{
+  flex:1;
+  display:grid;
+  grid-template-columns:1fr 30px;
+  grid-template-rows:26px 1fr;
+  min-height:0;
+  background:#1B2030;
+}
+.ruler-top{
+  grid-column:1; grid-row:1;
+  width:100%; height:26px;
+  display:block;
+  background:#28324A;
+  border-bottom:1px solid rgba(255,255,255,0.14);
+}
+.ruler-corner{
+  grid-column:2; grid-row:1;
+  background:#28324A;
+  border-bottom:1px solid rgba(255,255,255,0.14);
+  border-left:1px solid rgba(255,255,255,0.14);
+}
+.ruler-right{
+  grid-column:2; grid-row:2;
+  width:30px; height:100%;
+  display:block;
+  background:#28324A;
+  border-left:1px solid rgba(255,255,255,0.14);
+  box-shadow:-6px 0 12px -6px rgba(0,0,0,0.35);
+}
+.viewer-stage{
+  grid-column:1; grid-row:2;
+  position:relative;
+  overflow:hidden;
+  background:
+    linear-gradient(45deg, #232A3B 25%, transparent 25%),
+    linear-gradient(-45deg, #232A3B 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #232A3B 75%),
+    linear-gradient(-45deg, transparent 75%, #232A3B 75%);
+  background-size:18px 18px;
+  background-position:0 0, 0 9px, 9px -9px, -9px 0px;
+  background-color:#1F2536;
+  touch-action:none;
+  cursor:grab;
+}
+.viewer-stage.panning{cursor:grabbing;}
+.viewer-stage.calibrating{cursor:crosshair;}
+.viewer-canvas-wrap{
+  position:absolute;
+  top:0; left:0;
+  transform-origin:0 0;
+  will-change:transform;
+}
+.viewer-canvas-wrap img{
+  display:block;
+  user-select:none;
+  -webkit-user-drag:none;
+}
+.calib-layer{
+  position:absolute;
+  top:0; left:0;
+  overflow:visible;
+}
+.calib-layer .calib-line{
+  stroke:var(--copper-soft);
+  stroke-width:2;
+  vector-effect:non-scaling-stroke;
+}
+.calib-layer .calib-handle{
+  fill:var(--pin);
+  stroke:#fff;
+  stroke-width:2;
+  vector-effect:non-scaling-stroke;
+  cursor:grab;
+  pointer-events:auto;
+}
+.calib-layer .calib-handle:active{cursor:grabbing;}
+
+.calib-panel{
+  position:fixed;
+  left:50%;
+  bottom:18px;
+  transform:translateX(-50%);
+  background:#222B3E;
+  border:1px solid rgba(255,255,255,0.14);
+  border-radius:6px;
+  padding:6px 14px 12px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  box-shadow:0 8px 24px rgba(0,0,0,0.35);
+  z-index:50;
+  flex-wrap:wrap;
+  max-width:92vw;
+  touch-action:none;
+}
+.calib-panel span{font-size:12.5px; color:#EFEAE0; white-space:nowrap;}
+.calib-panel input{
+  width:80px;
+  padding:7px 9px;
+  border-radius:3px;
+  border:1px solid rgba(255,255,255,0.2);
+  background:rgba(255,255,255,0.06);
+  color:#fff;
+  font-size:13px;
+  font-family:inherit;
+  touch-action:auto;
+}
+.calib-panel input::placeholder{color:#8B8FA0;}
+.calib-panel .btn-mini{
+  padding:7px 12px;
+  font-size:12px;
+  border-radius:3px;
+  cursor:pointer;
+  border:1px solid transparent;
+  font-weight:500;
+  touch-action:auto;
+}
+.calib-panel .btn-mini.confirm{background:var(--copper); color:#fff;}
+.calib-panel .btn-mini.confirm:hover{background:#9C5530;}
+.calib-panel .btn-mini.cancel{background:rgba(255,255,255,0.08); color:#EFEAE0;}
+.calib-panel .btn-mini.cancel:hover{background:rgba(255,255,255,0.16);}
+.drag-handle{
+  width:100%;
+  display:flex;
+  justify-content:center;
+  padding:4px 0 6px;
+  cursor:grab;
+  touch-action:none;
+}
+.drag-handle:active{cursor:grabbing;}
+.drag-handle .grip{
+  width:34px;
+  height:5px;
+  border-radius:3px;
+  background:rgba(255,255,255,0.28);
+}
+.calib-panel .drag-handle{margin-bottom:2px;}
+
+.calib-banner{
+  position:fixed;
+  top:36px;
+  left:50%;
+  transform:translateX(-50%);
+  background:rgba(34,43,62,0.92);
+  color:#EFEAE0;
+  font-size:12px;
+  padding:5px 14px 7px;
+  border-radius:14px;
+  z-index:50;
+  border:1px solid rgba(255,255,255,0.12);
+  cursor:grab;
+  touch-action:none;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  max-width:88vw;
+}
+.calib-banner:active{cursor:grabbing;}
+.calib-banner .grip{
+  width:28px;
+  height:4px;
+  border-radius:3px;
+  background:rgba(255,255,255,0.28);
+  margin-bottom:5px;
+  flex-shrink:0;
+}
+.calib-banner .banner-text{
+  white-space:normal;
+  text-align:center;
+  line-height:1.4;
+}
+
+@media (max-width: 640px){
+  .viewer-title{display:none;}
+  .calib-panel{flex-direction:column; align-items:stretch;}
+  .calib-panel .row{display:flex; gap:8px; justify-content:center;}
+  .vtool-btn{padding:7px 9px; font-size:11.5px; gap:4px;}
+  .vtool-btn svg{width:13px;height:13px;}
+}
+@media (max-width: 680px){
+  .main{position:relative;}
+  .image-pane{
+    width:100%;
+    max-width:none;
+    border-right:none;
+    position:absolute;
+    inset:0;
+    z-index:2;
+    transition:transform .25s ease;
+  }
+  .data-pane{
+    width:100%;
+    position:absolute;
+    inset:0;
+    z-index:3;
+    transform:translateX(100%);
+    transition:transform .25s ease;
+  }
+  .data-pane.show-mobile{transform:translateX(0);}
+  .image-pane.hide-mobile{transform:translateX(-100%);}
+  .mobile-tabs{display:flex;}
+  .back-btn{
+    display:flex !important;
+  }
+  .field-grid{grid-template-columns:1fr;}
+  .record-photo{width:96px;height:96px;}
+}
+.back-btn{
+  display:none;
+  align-items:center;
+  gap:6px;
+  background:none;
+  border:none;
+  color:var(--indigo);
+  font-size:13px;
+  cursor:pointer;
+  padding:0 0 16px;
+  font-weight:600;
+}
+.back-btn svg{width:15px;height:15px;}
+
+@media (min-width: 681px) and (max-width: 1100px){
+  .image-pane{width:42%;}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="topbar">
+    <div class="brand">
+      <span class="mark">裁档</span>
+      <span class="sub">衣样图录</span>
+    </div>
+    <div class="topbar-actions">
+      <button class="icon-btn" id="exportBtn" title="导出备份">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg>
+      </button>
+      <button class="icon-btn" id="importBtn" title="导入备份">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 15V3m0 0l-4 4m4-4l4 4M5 21h14"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="main">
+
+    <!-- LEFT: image pane -->
+    <div class="image-pane" id="imagePane">
+      <div class="pane-head">
+        <div>
+          <div class="pane-title">图片库</div>
+          <div class="pane-count" id="paneCount">0 件</div>
+        </div>
+        <button class="add-btn" id="addBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          新增
+        </button>
+      </div>
+      <div class="search-row">
+        <input type="text" id="searchInput" placeholder="搜索归属人 / 布料 / 备注...">
+      </div>
+      <div class="image-list" id="imageList"></div>
+    </div>
+
+    <!-- RIGHT: data pane -->
+    <div class="data-pane" id="dataPane">
+      <div class="data-scroll" id="dataScroll"></div>
+    </div>
+
+  </div>
+
+  <div class="mobile-tabs">
+    <button class="active" id="tabImages">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+      图片库
+    </button>
+    <button id="tabData">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 17V9m6 8V5M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+      档案数据
+    </button>
+  </div>
+
+</div>
+
+<!-- Add image modal -->
+<div class="modal-overlay" id="addModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>新增衣样</h3>
+      <button class="modal-close" id="closeAddModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="field" style="background:transparent; border:none; padding:0; margin-bottom:16px;">
+        <div class="upload-zone" id="uploadZone">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+          <p id="uploadHint">点击或拖拽图片到此处</p>
+          <input type="file" id="fileInput" accept="image/*">
+        </div>
+        <img id="uploadPreview" class="upload-preview" style="display:none; margin-top:10px;">
+      </div>
+      <div class="field">
+        <label>归属人</label>
+        <input type="text" id="newOwner" placeholder="例如：王女士">
+      </div>
+      <div class="field">
+        <label>布料</label>
+        <input type="text" id="newFabric" placeholder="例如：真丝双绉">
+      </div>
+      <div class="field">
+        <label>收录日期</label>
+        <input type="date" id="newCollectDate">
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" id="cancelAdd">取消</button>
+      <button class="btn btn-primary" id="confirmAdd">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Import confirm modal -->
+<div class="modal-overlay" id="importModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>导入备份</h3>
+      <button class="modal-close" id="closeImportModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px; color:var(--ink-soft); line-height:1.6; margin-top:0;">导入将与当前数据合并。如有相同编号的记录，将被备份文件中的版本覆盖。建议先导出当前数据作为保险。</p>
+      <div class="upload-zone" id="importZone" style="margin-top:6px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+        <p>选择备份文件（.json）</p>
+        <input type="file" id="importFileInput" accept=".json,application/json">
+      </div>
+      <p id="importFileName" style="font-size:12.5px; color:var(--indigo); margin:10px 0 0; display:none;"></p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" id="cancelImport">取消</button>
+      <button class="btn btn-primary" id="confirmImport" disabled>导入</button>
+    </div>
+  </div>
+</div>
+
+<!-- Image Viewer with calibrated ruler -->
+<div class="viewer-overlay" id="viewerOverlay">
+  <div class="viewer-topbar">
+    <button class="viewer-close" id="viewerClose">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+    </button>
+    <div class="viewer-title" id="viewerTitle">衣样大图</div>
+    <div class="viewer-tools">
+      <div class="vtool-unit-toggle" id="unitToggle">
+        <button data-unit="cm" class="active">厘米</button>
+        <button data-unit="cun">市寸</button>
+      </div>
+      <button class="vtool-btn" id="calibrateBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17L17 3l4 4L7 21z"/><path d="M14 6l2 2M11 9l2 2M8 12l2 2M5 15l2 2"/></svg>
+        <span class="full-label">校准比例尺</span>
+      </button>
+      <div class="vtool-zoom-group">
+        <button id="zoomOutBtn">&minus;</button>
+        <div class="vtool-zoom-label" id="zoomLabel">100%</div>
+        <button id="zoomInBtn">+</button>
+      </div>
+      <button class="vtool-btn" id="zoomResetBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5a1 1 0 011-1h4M20 9V5a1 1 0 00-1-1h-4M4 15v4a1 1 0 001 1h4M20 15v4a1 1 0 01-1 1h-4"/></svg>
+        <span class="full-label">重置位置</span>
+      </button>
+    </div>
+  </div>
+  <div class="viewer-body">
+    <canvas class="ruler-top" id="rulerTop"></canvas>
+    <div class="ruler-corner"></div>
+    <div class="viewer-stage" id="viewerStage">
+      <div class="viewer-canvas-wrap" id="viewerCanvasWrap">
+        <img id="viewerImg" src="" alt="">
+        <svg class="calib-layer" id="calibLayer"></svg>
+      </div>
+      <div class="calib-banner" id="calibBanner" style="display:none;">
+        <span class="grip"></span>
+        <span class="banner-text">拖动两端的红点，对准衣服上一段已知长度 · 长按此条可拖动位置</span>
+      </div>
+      <div class="calib-panel" id="calibPanel" style="display:none;">
+        <div class="drag-handle" id="calibPanelHandle"><span class="grip"></span></div>
+        <span>这段参考线的实际长度：</span>
+        <input type="number" id="calibLengthInput" placeholder="厘米" step="0.1" inputmode="decimal">
+        <span>厘米</span>
+        <button class="btn-mini confirm" id="calibConfirmBtn">确定校准</button>
+        <button class="btn-mini cancel" id="calibCancelBtn">取消</button>
+      </div>
+    </div>
+    <canvas class="ruler-right" id="rulerRight"></canvas>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
