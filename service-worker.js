@@ -3,12 +3,14 @@
 // 注意：用户的实际衣样数据（图片、记录）始终存在 localStorage 里，不经过这里，
 // 这个文件只负责让页面本身（HTML/JS/图标）离线也能加载出来。
 
-const CACHE_NAME = 'caidang-shell-v1';
+const CACHE_NAME = 'caidang-shell-v2';
 const SHELL_FILES = [
   './',
   './index.html',
   './app.js',
   './manifest.json',
+  './vendor/jspdf.min.js',
+  './vendor/html2canvas.min.js',
   './icons/icon-72.png',
   './icons/icon-96.png',
   './icons/icon-128.png',
