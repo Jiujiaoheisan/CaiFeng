@@ -678,11 +678,11 @@ function buildPdfHtml(r){
       <div style="color:#2B3344; font-size:13px; line-height:1.65; white-space:pre-wrap;">${escapeHtml(r.remark)}</div>
     </div>` : '';
 
-  const photosHtml = (r.images||[]).map(im=>`
-    <div style="width:206px; height:206px; border-radius:4px; overflow:hidden; border:1px solid #D8CFB9; background:#fff; flex-shrink:0;">
-      <img src="${im.dataUrl}" style="width:100%; height:100%; object-fit:cover; display:block;" crossorigin="anonymous">
-    </div>
-  `).join('');
+  const photoCount = (r.images||[]).length;
+  const photoNoteHtml = photoCount ? `
+    <div style="margin-top:18px; font-size:12px; color:#8B8678;">
+      衣样照片共 ${photoCount} 张，附在本文档之后（每张单独一页，保留完整原图）。
+    </div>` : '';
 
   return `
     <div style="font-family:'Noto Sans SC', sans-serif; color:#2B3344; width:100%; box-sizing:border-box;">
@@ -699,17 +699,29 @@ function buildPdfHtml(r){
 
       <div style="margin-bottom:8px;">${fieldsHtml}</div>
       ${remarkHtml}
-
-      ${photosHtml ? `<div style="margin-top:22px;">
-        <div style="color:#5B6478; font-size:12px; margin-bottom:10px;">衣样照片（共 ${(r.images||[]).length} 张）</div>
-        <div style="display:flex; flex-wrap:wrap; gap:12px;">${photosHtml}</div>
-      </div>` : ''}
+      ${photoNoteHtml}
 
       <div style="margin-top:26px; padding-top:14px; border-top:1px solid #D8CFB9; font-size:10.5px; color:#A6A18F;">
         生成时间：${new Date().toLocaleString('zh-CN')}
       </div>
     </div>
   `;
+}
+
+// 读取一张base64图片的原始像素宽高（用于按真实比例把整张原图嵌入PDF页面，不裁切、不缩成小图）
+function getImageNaturalSize(dataUrl){
+  return new Promise((resolve)=>{
+    const img = new Image();
+    img.onload = ()=> resolve({ width: img.naturalWidth || 1, height: img.naturalHeight || 1 });
+    img.onerror = ()=> resolve({ width: 1, height: 1 }); // 容错：万一某张图损坏，不让整个PDF生成卡死
+    img.src = dataUrl;
+  });
+}
+
+function detectImageFormat(dataUrl){
+  if(/^data:image\/png/i.test(dataUrl)) return 'PNG';
+  if(/^data:image\/webp/i.test(dataUrl)) return 'WEBP';
+  return 'JPEG'; // 手机拍照默认多为JPEG，兜底也用JPEG
 }
 
 async function shareRecordAsPdf(recordId){
@@ -732,17 +744,10 @@ async function shareRecordAsPdf(recordId){
   renderArea.style.background = '#F3EFE6';
   renderArea.style.padding = '32px';
   renderArea.style.boxSizing = 'border-box';
-  renderArea.innerHTML = buildPdfHtml(r);
+  renderArea.innerHTML = buildPdfHtml(r); // 此处只有文字字段，不含任何<img>，不会被压缩/裁切
   document.body.appendChild(renderArea);
 
   try{
-    // 等图片全部加载完成，避免html2canvas拍到空白
-    const imgs = renderArea.querySelectorAll('img');
-    await Promise.all(Array.from(imgs).map(img=>{
-      if(img.complete) return Promise.resolve();
-      return new Promise(res=>{ img.onload = res; img.onerror = res; });
-    }));
-
     const canvas = await html2canvas(renderArea, { scale: 2, backgroundColor: '#F3EFE6', useCORS: true });
 
     const pdf = new window.jspdf.jsPDF({ unit: 'pt', format: 'a4' });
@@ -774,6 +779,37 @@ async function shareRecordAsPdf(recordId){
       sourceY += sliceHeightPx;
       remainingPx -= sliceHeightPx;
       firstPage = false;
+    }
+
+    // ---- 衣样照片：每张原图单独占一整页，按原始宽高比完整嵌入，绝不裁切、不缩成小缩略图 ----
+    const images = r.images || [];
+    for(let i=0; i<images.length; i++){
+      const im = images[i];
+      const dims = await getImageNaturalSize(im.dataUrl);
+
+      pdf.addPage();
+
+      const captionY = margin + 4;
+      pdf.setFontSize(10);
+      pdf.setTextColor(139, 134, 120);
+      pdf.text(`衣样照片 ${i+1} / ${images.length}`, margin, captionY);
+
+      const captionSpace = 18;
+      const availW = pageWidth - margin*2;
+      const availH = pageHeight - margin*2 - captionSpace;
+      const ratio = dims.width / dims.height;
+
+      let drawW = availW;
+      let drawH = drawW / ratio;
+      if(drawH > availH){
+        drawH = availH;
+        drawW = drawH * ratio;
+      }
+      const drawX = margin + (availW - drawW) / 2;
+      const drawY = margin + captionSpace + (availH - drawH) / 2;
+
+      const format = detectImageFormat(im.dataUrl);
+      pdf.addImage(im.dataUrl, format, drawX, drawY, drawW, drawH);
     }
 
     const safeOwner = (r.owner || '未命名').replace(/[\\/:*?"<>|]/g,'').trim() || '未命名';
@@ -823,105 +859,19 @@ async function sharePdfBlob(blob, fileName){
 /* =========================================================
    图片查看器 + 校准量尺
    ========================================================= */
-const CM_PER_CUN = 10/3; // 1 市寸 ≈ 3.3333 厘米（1 市尺 = 10 市寸 = 100/3 厘米）
-
 const viewer = {
   recordId: null,
-  imageId: null,           // 当前正在查看/校准的具体图片id
+  imageId: null,           // 当前正在查看的具体图片id
   scale: 1,
   minScale: 0.1,
   maxScale: 8,
   tx: 0, ty: 0,           // 自然像素(0,0) 在 stage 坐标系中的位置
   naturalWidth: 0,
   naturalHeight: 0,
-  rulerUnit: 'cm',         // 'cm' | 'cun'
-  calibrating: false,
-  calibConfirmedOnce: false, // 本次校准会话中是否已经放置过点
-  p1: null, p2: null,      // 校准两端点（自然像素坐标）
-  draggingHandle: null,    // 'p1' | 'p2' | null
   isPanning: false,
   panStart: null,
   pinch: null,             // {startDist, startScale, midScreen}
 };
-
-/* ---------- 视口高度同步（应对手机浏览器地址栏动态收起/展开） ---------- */
-/* ---------- 浮动窗口：可拖拽 + 安全定位 ---------- */
-// 记录每个浮窗当前是否已经被用户手动拖动过（拖动过的就不再自动重新定位，尊重用户摆放）
-const floatingPanelDragged = {};
-
-function resetFloatingPanelPosition(elId){
-  if(floatingPanelDragged[elId]) return; // 用户已手动摆放过，不要打断
-  const el = document.getElementById(elId);
-  if(!el) return;
-  // 清除可能残留的手动拖拽样式，恢复CSS默认（居中）定位
-  el.style.left = '';
-  el.style.top = '';
-  el.style.right = '';
-  el.style.bottom = '';
-  el.style.transform = '';
-  if(elId === 'calibPanel'){
-    el.style.bottom = '18px';
-    el.style.left = '50%';
-    el.style.transform = 'translateX(-50%)';
-  } else if(elId === 'calibBanner'){
-    // 工具条在手机上可能换行为两行，用实际高度+间距来定位，避免重叠
-    const topbar = document.querySelector('.viewer-topbar');
-    const topbarBottom = topbar ? topbar.getBoundingClientRect().bottom : 36;
-    el.style.top = (topbarBottom + 10) + 'px';
-    el.style.left = '50%';
-    el.style.transform = 'translateX(-50%)';
-  }
-}
-
-function clampToViewport(left, top, width, height){
-  const vw = window.visualViewport ? window.visualViewport.width : window.innerWidth;
-  const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-  const margin = 6;
-  const maxLeft = vw - width - margin;
-  const maxTop = vh - height - margin;
-  return {
-    left: Math.max(margin, Math.min(maxLeft, left)),
-    top: Math.max(margin, Math.min(maxTop, top))
-  };
-}
-
-function makeDraggable(panelId, handleId){
-  const panel = document.getElementById(panelId);
-  const handle = document.getElementById(handleId);
-  if(!panel || !handle) return;
-
-  let dragging = false, startX = 0, startY = 0, startLeft = 0, startTop = 0;
-
-  handle.addEventListener('pointerdown', (e)=>{
-    dragging = true;
-    floatingPanelDragged[panelId] = true;
-    const rect = panel.getBoundingClientRect();
-    startX = e.clientX; startY = e.clientY;
-    startLeft = rect.left; startTop = rect.top;
-    // 切换为像素定位，脱离原来的 left:50%/transform 居中方式
-    panel.style.left = startLeft + 'px';
-    panel.style.top = startTop + 'px';
-    panel.style.bottom = 'auto';
-    panel.style.right = 'auto';
-    panel.style.transform = 'none';
-    handle.setPointerCapture && handle.setPointerCapture(e.pointerId);
-    e.preventDefault();
-  });
-
-  window.addEventListener('pointermove', (e)=>{
-    if(!dragging) return;
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-    const rect = panel.getBoundingClientRect();
-    const clamped = clampToViewport(startLeft+dx, startTop+dy, rect.width, rect.height);
-    panel.style.left = clamped.left + 'px';
-    panel.style.top = clamped.top + 'px';
-  });
-
-  ['pointerup','pointercancel'].forEach(evt=>{
-    window.addEventListener(evt, ()=>{ dragging = false; });
-  });
-}
 
 function openImageViewer(recordId, imageId){
   const r = records.find(x=>x.id===recordId);
@@ -939,22 +889,6 @@ function loadImageIntoViewer(recordId, imageId){
 
   viewer.recordId = recordId;
   viewer.imageId = imageId;
-  viewer.rulerUnit = 'cm';
-  viewer.calibrating = false;
-  viewer.p1 = null; viewer.p2 = null;
-
-  // 每次切换图片，浮窗都恢复默认安全位置（不沿用上一次拖动的位置）
-  floatingPanelDragged.calibPanel = false;
-  floatingPanelDragged.calibBanner = false;
-  resetFloatingPanelPosition('calibPanel');
-  resetFloatingPanelPosition('calibBanner');
-
-  document.getElementById('unitToggle').querySelectorAll('button').forEach(b=>{
-    b.classList.toggle('active', b.dataset.unit==='cm');
-  });
-  document.getElementById('calibrateBtn').classList.remove('active');
-  document.getElementById('calibPanel').style.display = 'none';
-  document.getElementById('calibBanner').style.display = 'none';
 
   const img = document.getElementById('viewerImg');
   img.onload = ()=>{
@@ -962,20 +896,8 @@ function loadImageIntoViewer(recordId, imageId){
     viewer.naturalHeight = img.naturalHeight;
     img.style.width = viewer.naturalWidth + 'px';
     img.style.height = viewer.naturalHeight + 'px';
-    document.getElementById('calibLayer').setAttribute('width', viewer.naturalWidth);
-    document.getElementById('calibLayer').setAttribute('height', viewer.naturalHeight);
-    document.getElementById('calibLayer').setAttribute('viewBox', `0 0 ${viewer.naturalWidth} ${viewer.naturalHeight}`);
-
-    // 载入这张图片自己保存的校准点（如果有）
-    if(im.calibration && im.calibration.p1 && im.calibration.p2){
-      viewer.p1 = {...im.calibration.p1};
-      viewer.p2 = {...im.calibration.p2};
-    }
 
     fitImageToStage();
-    renderCalibLayer();
-    drawRulers();
-    updateCalibrateBtnLabel();
   };
   img.src = im.dataUrl;
 
@@ -1008,17 +930,6 @@ function closeImageViewer(){
   document.getElementById('viewerOverlay').classList.remove('show');
   viewer.recordId = null;
   viewer.imageId = null;
-  viewer.calibrating = false;
-}
-
-function updateCalibrateBtnLabel(){
-  const r = records.find(x=>x.id===viewer.recordId);
-  const im = r ? findImage(r, viewer.imageId) : null;
-  const btn = document.getElementById('calibrateBtn');
-  const hasCalib = im && im.calibration;
-  btn.querySelector('.full-label').textContent = viewer.calibrating
-    ? '取消校准'
-    : (hasCalib ? '重新校准' : '校准比例尺');
 }
 
 function fitImageToStage(){
@@ -1060,18 +971,6 @@ function applyViewerTransform(){
   const wrap = document.getElementById('viewerCanvasWrap');
   wrap.style.transform = `translate(${viewer.tx}px, ${viewer.ty}px) scale(${viewer.scale})`;
   document.getElementById('zoomLabel').textContent = Math.round(viewer.scale*100) + '%';
-  updateHandleSizes();
-  drawRulers();
-}
-
-function screenToNatural(clientX, clientY){
-  const rect = document.getElementById('viewerStage').getBoundingClientRect();
-  const sx = clientX - rect.left;
-  const sy = clientY - rect.top;
-  return {
-    x: (sx - viewer.tx) / viewer.scale,
-    y: (sy - viewer.ty) / viewer.scale
-  };
 }
 
 function zoomBy(factor, screenX, screenY){
@@ -1097,231 +996,6 @@ function zoomBy(factor, screenX, screenY){
   applyViewerTransform();
 }
 
-/* ---------- ruler drawing ---------- */
-function drawRulers(){
-  const r = records.find(x=>x.id===viewer.recordId);
-  const im = r ? findImage(r, viewer.imageId) : null;
-  const topCanvas = document.getElementById('rulerTop');
-  const rightCanvas = document.getElementById('rulerRight');
-  const dpr = window.devicePixelRatio || 1;
-
-  [topCanvas, rightCanvas].forEach(c=>{
-    const cssW = c.clientWidth, cssH = c.clientHeight;
-    if(c.width !== cssW*dpr) c.width = cssW*dpr;
-    if(c.height !== cssH*dpr) c.height = cssH*dpr;
-  });
-
-  const ctxTop = topCanvas.getContext('2d');
-  const ctxRight = rightCanvas.getContext('2d');
-  ctxTop.save(); ctxTop.scale(dpr,dpr);
-  ctxRight.save(); ctxRight.scale(dpr,dpr);
-  ctxTop.clearRect(0,0,topCanvas.clientWidth, topCanvas.clientHeight);
-  ctxRight.clearRect(0,0,rightCanvas.clientWidth, rightCanvas.clientHeight);
-
-  const calibrated = im && im.calibration && im.calibration.pixelsPerCm > 0;
-
-  if(!calibrated){
-    drawUncalibratedHint(ctxTop, topCanvas.clientWidth, topCanvas.clientHeight, true);
-    drawUncalibratedHint(ctxRight, rightCanvas.clientWidth, rightCanvas.clientHeight, false);
-    ctxTop.restore(); ctxRight.restore();
-    return;
-  }
-
-  const pixelsPerCm = im.calibration.pixelsPerCm;
-  const screenPxPerCm = pixelsPerCm * viewer.scale;
-  const stepUnitCm = viewer.rulerUnit === 'cm' ? 1 : CM_PER_CUN;
-  const screenPxPerStep = screenPxPerCm * stepUnitCm;
-
-  // 主刻度分组：厘米 每5格一个数字、每10格加粗；市寸 每5寸（半尺）一个数字，每10寸（1尺）加粗
-  const majorEvery = 5;
-  const boldEvery = 10;
-  const unitLabel = viewer.rulerUnit === 'cm' ? 'cm' : '寸';
-
-  drawRulerAxis(ctxTop, topCanvas.clientWidth, topCanvas.clientHeight, viewer.tx, screenPxPerStep, majorEvery, boldEvery, unitLabel, true);
-  drawRulerAxis(ctxRight, rightCanvas.clientHeight, rightCanvas.clientWidth, viewer.ty, screenPxPerStep, majorEvery, boldEvery, unitLabel, false);
-
-  ctxTop.restore(); ctxRight.restore();
-}
-
-function drawUncalibratedHint(ctx, w, h, isHorizontal){
-  ctx.fillStyle = 'rgba(255,255,255,0.03)';
-  ctx.fillRect(0,0,w,h);
-  ctx.fillStyle = '#6B7186';
-  ctx.font = '11px "Noto Sans SC", sans-serif';
-  ctx.textBaseline = 'middle';
-  if(isHorizontal){
-    ctx.textAlign = 'center';
-    ctx.fillText('未校准比例尺 · 点击上方"校准比例尺"', w/2, h/2);
-  }
-  // 竖直方向窄，不放文字，留空即可
-}
-
-function drawRulerAxis(ctx, lengthPx, thicknessPx, origin, pxPerStep, majorEvery, boldEvery, unitLabel, isHorizontal){
-  ctx.font = '11px "Noto Sans SC", sans-serif';
-  ctx.lineWidth = 1;
-
-  if(pxPerStep < 2) return; // 太密集就不画，避免卡顿
-
-  const nStart = Math.floor((0 - origin) / pxPerStep) - 1;
-  const nEnd = Math.ceil((lengthPx - origin) / pxPerStep) + 1;
-
-  for(let n = nStart; n <= nEnd; n++){
-    const pos = origin + n*pxPerStep;
-    if(pos < -2 || pos > lengthPx+2) continue;
-    const isBold = (n % boldEvery === 0);
-    const isMajor = (n % majorEvery === 0);
-    const tickLen = isBold ? thicknessPx*0.68 : isMajor ? thicknessPx*0.5 : thicknessPx*0.3;
-
-    ctx.beginPath();
-    ctx.strokeStyle = isBold ? '#FFB37A' : 'rgba(255,255,255,0.85)';
-    ctx.lineWidth = isBold ? 2 : 1.3;
-    if(isHorizontal){
-      ctx.moveTo(pos, thicknessPx);
-      ctx.lineTo(pos, thicknessPx - tickLen);
-    } else {
-      ctx.moveTo(thicknessPx, pos);
-      ctx.lineTo(thicknessPx - tickLen, pos);
-    }
-    ctx.stroke();
-
-    if(isMajor){
-      const label = String(n);
-      ctx.fillStyle = isBold ? '#FFD9B3' : '#F0EEE6';
-      ctx.font = isBold ? 'bold 11px "Noto Sans SC", sans-serif' : '11px "Noto Sans SC", sans-serif';
-      if(isHorizontal){
-        ctx.textAlign = 'center';
-        ctx.fillText(label, pos, thicknessPx - tickLen - 6);
-      } else {
-        ctx.save();
-        ctx.translate(thicknessPx - tickLen - 6, pos);
-        ctx.rotate(-Math.PI/2);
-        ctx.textAlign = 'center';
-        ctx.fillText(label, 0, 0);
-        ctx.restore();
-      }
-    }
-  }
-
-  // 单位标签，画在起点角落
-  ctx.fillStyle = '#D8D4C8';
-  ctx.font = 'bold 10px "Noto Sans SC", sans-serif';
-  if(isHorizontal){
-    ctx.textAlign = 'left';
-    ctx.fillText(unitLabel, 4, thicknessPx-3);
-  }
-}
-
-/* ---------- calibration handle layer ---------- */
-function renderCalibLayer(){
-  const svg = document.getElementById('calibLayer');
-  svg.innerHTML = '';
-  if(!viewer.p1 || !viewer.p2) return;
-
-  const line = document.createElementNS('http://www.w3.org/2000/svg','line');
-  line.setAttribute('class','calib-line');
-  line.setAttribute('x1', viewer.p1.x); line.setAttribute('y1', viewer.p1.y);
-  line.setAttribute('x2', viewer.p2.x); line.setAttribute('y2', viewer.p2.y);
-  svg.appendChild(line);
-
-  ['p1','p2'].forEach(key=>{
-    const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
-    c.setAttribute('class','calib-handle');
-    c.setAttribute('data-handle', key);
-    c.setAttribute('cx', viewer[key].x);
-    c.setAttribute('cy', viewer[key].y);
-    c.setAttribute('r', 10/viewer.scale);
-    if(!viewer.calibrating) c.setAttribute('style','pointer-events:none;');
-    svg.appendChild(c);
-  });
-}
-
-function updateHandleSizes(){
-  const svg = document.getElementById('calibLayer');
-  if(!svg) return;
-  svg.querySelectorAll('.calib-handle').forEach(c=>{
-    c.setAttribute('r', 10/viewer.scale);
-  });
-}
-
-function startCalibration(){
-  viewer.calibrating = true;
-  document.getElementById('calibrateBtn').classList.add('active');
-  resetFloatingPanelPosition('calibBanner');
-  document.getElementById('calibBanner').style.display = 'flex';
-  document.getElementById('calibPanel').style.display = 'none';
-
-  if(!viewer.p1 || !viewer.p2){
-    // 给一个默认的居中参考线，宽度约为图片宽度的 30%
-    const cx = viewer.naturalWidth/2, cy = viewer.naturalHeight/2;
-    const half = viewer.naturalWidth*0.15;
-    viewer.p1 = { x: cx-half, y: cy };
-    viewer.p2 = { x: cx+half, y: cy };
-  }
-  renderCalibLayer();
-  updateCalibrateBtnLabel();
-}
-
-function cancelCalibration(){
-  viewer.calibrating = false;
-  document.getElementById('calibrateBtn').classList.remove('active');
-  document.getElementById('calibBanner').style.display = 'none';
-  document.getElementById('calibPanel').style.display = 'none';
-
-  const r = records.find(x=>x.id===viewer.recordId);
-  const im = r ? findImage(r, viewer.imageId) : null;
-  if(im && im.calibration){
-    viewer.p1 = {...im.calibration.p1};
-    viewer.p2 = {...im.calibration.p2};
-  } else {
-    viewer.p1 = null; viewer.p2 = null;
-  }
-  renderCalibLayer();
-  drawRulers();
-  updateCalibrateBtnLabel();
-}
-
-function openCalibPanel(){
-  document.getElementById('calibBanner').style.display = 'none';
-  resetFloatingPanelPosition('calibPanel');
-  document.getElementById('calibPanel').style.display = 'flex';
-  document.getElementById('calibLengthInput').value = '';
-  document.getElementById('calibLengthInput').focus();
-}
-
-function confirmCalibration(){
-  const val = parseFloat(document.getElementById('calibLengthInput').value);
-  if(!val || val <= 0){
-    showToast('请输入大于 0 的实际长度（厘米）');
-    return;
-  }
-  const r = records.find(x=>x.id===viewer.recordId);
-  const im = r ? findImage(r, viewer.imageId) : null;
-  if(!r || !im) return;
-  const dx = viewer.p2.x - viewer.p1.x;
-  const dy = viewer.p2.y - viewer.p1.y;
-  const naturalDist = Math.sqrt(dx*dx + dy*dy);
-  if(naturalDist < 1){
-    showToast('参考线太短，请拉开一点距离再校准');
-    return;
-  }
-  const pixelsPerCm = naturalDist / val;
-  im.calibration = {
-    realLength: val,
-    pixelsPerCm,
-    p1: {...viewer.p1},
-    p2: {...viewer.p2}
-  };
-  saveRecords();
-
-  viewer.calibrating = false;
-  document.getElementById('calibrateBtn').classList.remove('active');
-  document.getElementById('calibBanner').style.display = 'none';
-  document.getElementById('calibPanel').style.display = 'none';
-  renderCalibLayer();
-  drawRulers();
-  updateCalibrateBtnLabel();
-  showToast('校准完成，比例尺已生效并保存');
-}
 
 /* ---------- pointer interactions on stage ---------- */
 function getDist(t1, t2){
@@ -1341,37 +1015,8 @@ function initViewerInteractions(){
     zoomBy(factor, e.clientX, e.clientY);
   }, { passive:false });
 
-  // ----- calibration handle drag (mouse + touch via pointer events) -----
-  const calibLayer = document.getElementById('calibLayer');
-  calibLayer.addEventListener('pointerdown', (e)=>{
-    if(!viewer.calibrating) return;
-    const target = e.target.closest('.calib-handle');
-    if(!target) return;
-    e.stopPropagation();
-    viewer.draggingHandle = target.dataset.handle;
-    target.setPointerCapture && target.setPointerCapture(e.pointerId);
-  });
-
-  window.addEventListener('pointermove', (e)=>{
-    if(viewer.draggingHandle){
-      const nat = screenToNatural(e.clientX, e.clientY);
-      viewer[viewer.draggingHandle] = nat;
-      renderCalibLayer();
-    }
-  });
-  window.addEventListener('pointerup', ()=>{
-    if(viewer.draggingHandle){
-      viewer.draggingHandle = null;
-      if(document.getElementById('calibPanel').style.display !== 'flex'){
-        openCalibPanel();
-      }
-    }
-  });
-
   // ----- pan (mouse drag) -----
   stage.addEventListener('pointerdown', (e)=>{
-    if(viewer.calibrating) return; // 校准模式下交给 calibLayer 处理把手拖拽，空白处不平移，避免误触
-    if(e.target.closest('.calib-handle')) return;
     viewer.isPanning = true;
     viewer.panStart = { x:e.clientX, y:e.clientY, tx:viewer.tx, ty:viewer.ty };
     stage.classList.add('panning');
@@ -1418,13 +1063,6 @@ function initViewerInteractions(){
   stage.addEventListener('touchend', (e)=>{
     if(e.touches.length < 2) viewer.pinch = null;
   });
-
-  // resize: refit ruler canvases
-  window.addEventListener('resize', ()=>{
-    if(document.getElementById('viewerOverlay').classList.contains('show')){
-      drawRulers();
-    }
-  });
 }
 
 function bindViewerControls(){
@@ -1436,34 +1074,6 @@ function bindViewerControls(){
   document.getElementById('zoomInBtn').addEventListener('click', ()=> zoomBy(1.25));
   document.getElementById('zoomOutBtn').addEventListener('click', ()=> zoomBy(1/1.25));
   document.getElementById('zoomResetBtn').addEventListener('click', fitImageToStage);
-
-  document.getElementById('unitToggle').addEventListener('click', (e)=>{
-    const btn = e.target.closest('button');
-    if(!btn) return;
-    viewer.rulerUnit = btn.dataset.unit;
-    document.getElementById('unitToggle').querySelectorAll('button').forEach(b=>{
-      b.classList.toggle('active', b===btn);
-    });
-    drawRulers();
-  });
-
-  document.getElementById('calibrateBtn').addEventListener('click', ()=>{
-    if(viewer.calibrating){
-      cancelCalibration();
-    } else {
-      startCalibration();
-    }
-  });
-
-  document.getElementById('calibConfirmBtn').addEventListener('click', confirmCalibration);
-  document.getElementById('calibCancelBtn').addEventListener('click', ()=>{
-    document.getElementById('calibPanel').style.display = 'none';
-    resetFloatingPanelPosition('calibBanner');
-    document.getElementById('calibBanner').style.display = 'flex';
-  });
-
-  makeDraggable('calibPanel', 'calibPanelHandle');
-  makeDraggable('calibBanner', 'calibBanner');
 
   initViewerInteractions();
 }

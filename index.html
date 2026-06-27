@@ -807,22 +807,6 @@ body::before{
   height:30px;
   display:flex;align-items:center;justify-content:center;
 }
-.vtool-unit-toggle{
-  display:flex;
-  border:1px solid rgba(255,255,255,0.16);
-  border-radius:3px;
-  overflow:hidden;
-}
-.vtool-unit-toggle button{
-  padding:7px 10px;
-  font-size:11.5px;
-  background:rgba(255,255,255,0.04);
-  border:none;
-  color:#C9C3B4;
-  cursor:pointer;
-}
-.vtool-unit-toggle button.active{background:var(--indigo); color:#fff;}
-
 .viewer-body{
   flex:1;
   display:flex;
@@ -852,38 +836,11 @@ body::before{
 }
 .viewer-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
 .viewer-thumb.active{border-color:var(--copper-soft); opacity:1;}
-.viewer-ruler-grid{
-  flex:1;
-  display:grid;
-  grid-template-columns:1fr 30px;
-  grid-template-rows:26px 1fr;
-  min-height:0;
-}
-.ruler-top{
-  grid-column:1; grid-row:1;
-  width:100%; height:26px;
-  display:block;
-  background:#28324A;
-  border-bottom:1px solid rgba(255,255,255,0.14);
-}
-.ruler-corner{
-  grid-column:2; grid-row:1;
-  background:#28324A;
-  border-bottom:1px solid rgba(255,255,255,0.14);
-  border-left:1px solid rgba(255,255,255,0.14);
-}
-.ruler-right{
-  grid-column:2; grid-row:2;
-  width:30px; height:100%;
-  display:block;
-  background:#28324A;
-  border-left:1px solid rgba(255,255,255,0.14);
-  box-shadow:-6px 0 12px -6px rgba(0,0,0,0.35);
-}
 .viewer-stage{
-  grid-column:1; grid-row:2;
+  flex:1;
   position:relative;
   overflow:hidden;
+  min-height:0;
   background:
     linear-gradient(45deg, #232A3B 25%, transparent 25%),
     linear-gradient(-45deg, #232A3B 25%, transparent 25%),
@@ -896,7 +853,6 @@ body::before{
   cursor:grab;
 }
 .viewer-stage.panning{cursor:grabbing;}
-.viewer-stage.calibrating{cursor:crosshair;}
 .viewer-canvas-wrap{
   position:absolute;
   top:0; left:0;
@@ -908,125 +864,9 @@ body::before{
   user-select:none;
   -webkit-user-drag:none;
 }
-.calib-layer{
-  position:absolute;
-  top:0; left:0;
-  overflow:visible;
-}
-.calib-layer .calib-line{
-  stroke:var(--copper-soft);
-  stroke-width:2;
-  vector-effect:non-scaling-stroke;
-}
-.calib-layer .calib-handle{
-  fill:var(--pin);
-  stroke:#fff;
-  stroke-width:2;
-  vector-effect:non-scaling-stroke;
-  cursor:grab;
-  pointer-events:auto;
-}
-.calib-layer .calib-handle:active{cursor:grabbing;}
-
-.calib-panel{
-  position:fixed;
-  left:50%;
-  bottom:18px;
-  transform:translateX(-50%);
-  background:#222B3E;
-  border:1px solid rgba(255,255,255,0.14);
-  border-radius:6px;
-  padding:6px 14px 12px;
-  display:flex;
-  align-items:center;
-  gap:8px;
-  box-shadow:0 8px 24px rgba(0,0,0,0.35);
-  z-index:50;
-  flex-wrap:wrap;
-  max-width:92vw;
-  touch-action:none;
-}
-.calib-panel span{font-size:12.5px; color:#EFEAE0; white-space:nowrap;}
-.calib-panel input{
-  width:80px;
-  padding:7px 9px;
-  border-radius:3px;
-  border:1px solid rgba(255,255,255,0.2);
-  background:rgba(255,255,255,0.06);
-  color:#fff;
-  font-size:13px;
-  font-family:inherit;
-  touch-action:auto;
-}
-.calib-panel input::placeholder{color:#8B8FA0;}
-.calib-panel .btn-mini{
-  padding:7px 12px;
-  font-size:12px;
-  border-radius:3px;
-  cursor:pointer;
-  border:1px solid transparent;
-  font-weight:500;
-  touch-action:auto;
-}
-.calib-panel .btn-mini.confirm{background:var(--copper); color:#fff;}
-.calib-panel .btn-mini.confirm:hover{background:#9C5530;}
-.calib-panel .btn-mini.cancel{background:rgba(255,255,255,0.08); color:#EFEAE0;}
-.calib-panel .btn-mini.cancel:hover{background:rgba(255,255,255,0.16);}
-.drag-handle{
-  width:100%;
-  display:flex;
-  justify-content:center;
-  padding:4px 0 6px;
-  cursor:grab;
-  touch-action:none;
-}
-.drag-handle:active{cursor:grabbing;}
-.drag-handle .grip{
-  width:34px;
-  height:5px;
-  border-radius:3px;
-  background:rgba(255,255,255,0.28);
-}
-.calib-panel .drag-handle{margin-bottom:2px;}
-
-.calib-banner{
-  position:fixed;
-  top:36px;
-  left:50%;
-  transform:translateX(-50%);
-  background:rgba(34,43,62,0.92);
-  color:#EFEAE0;
-  font-size:12px;
-  padding:5px 14px 7px;
-  border-radius:14px;
-  z-index:50;
-  border:1px solid rgba(255,255,255,0.12);
-  cursor:grab;
-  touch-action:none;
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  max-width:88vw;
-}
-.calib-banner:active{cursor:grabbing;}
-.calib-banner .grip{
-  width:28px;
-  height:4px;
-  border-radius:3px;
-  background:rgba(255,255,255,0.28);
-  margin-bottom:5px;
-  flex-shrink:0;
-}
-.calib-banner .banner-text{
-  white-space:normal;
-  text-align:center;
-  line-height:1.4;
-}
 
 @media (max-width: 640px){
   .viewer-title{display:none;}
-  .calib-panel{flex-direction:column; align-items:stretch;}
-  .calib-panel .row{display:flex; gap:8px; justify-content:center;}
   .vtool-btn{padding:7px 9px; font-size:11.5px; gap:4px;}
   .vtool-btn svg{width:13px;height:13px;}
 }
@@ -1203,14 +1043,6 @@ body::before{
     </button>
     <div class="viewer-title" id="viewerTitle">衣样大图</div>
     <div class="viewer-tools">
-      <div class="vtool-unit-toggle" id="unitToggle">
-        <button data-unit="cm" class="active">厘米</button>
-        <button data-unit="cun">市寸</button>
-      </div>
-      <button class="vtool-btn" id="calibrateBtn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17L17 3l4 4L7 21z"/><path d="M14 6l2 2M11 9l2 2M8 12l2 2M5 15l2 2"/></svg>
-        <span class="full-label">校准比例尺</span>
-      </button>
       <div class="vtool-zoom-group">
         <button id="zoomOutBtn">&minus;</button>
         <div class="vtool-zoom-label" id="zoomLabel">100%</div>
@@ -1224,28 +1056,10 @@ body::before{
   </div>
   <div class="viewer-body" id="viewerBody">
     <div class="viewer-thumb-strip" id="viewerThumbStrip" style="display:none;"></div>
-    <div class="viewer-ruler-grid">
-      <canvas class="ruler-top" id="rulerTop"></canvas>
-      <div class="ruler-corner"></div>
-      <div class="viewer-stage" id="viewerStage">
-        <div class="viewer-canvas-wrap" id="viewerCanvasWrap">
-          <img id="viewerImg" src="" alt="">
-          <svg class="calib-layer" id="calibLayer"></svg>
-        </div>
-        <div class="calib-banner" id="calibBanner" style="display:none;">
-          <span class="grip"></span>
-          <span class="banner-text">拖动两端的红点，对准衣服上一段已知长度 · 长按此条可拖动位置</span>
-        </div>
-        <div class="calib-panel" id="calibPanel" style="display:none;">
-          <div class="drag-handle" id="calibPanelHandle"><span class="grip"></span></div>
-          <span>这段参考线的实际长度：</span>
-          <input type="number" id="calibLengthInput" placeholder="厘米" step="0.1" inputmode="decimal">
-          <span>厘米</span>
-          <button class="btn-mini confirm" id="calibConfirmBtn">确定校准</button>
-          <button class="btn-mini cancel" id="calibCancelBtn">取消</button>
-        </div>
+    <div class="viewer-stage" id="viewerStage">
+      <div class="viewer-canvas-wrap" id="viewerCanvasWrap">
+        <img id="viewerImg" src="" alt="">
       </div>
-      <canvas class="ruler-right" id="rulerRight"></canvas>
     </div>
   </div>
 </div>
