@@ -831,10 +831,24 @@ async function shareRecordAsPdf(recordId){
   }
 }
 
+// 判断是否为手机/平板等移动设备。
+// 桌面端浏览器调用系统分享面板时，微信桌面客户端常常"打开了但接不住文件"
+// （它没有正确实现Windows的文件分享接收），表现为分享面板弹出、点了微信、
+// 微信被唤起，但里面什么都没有——这是微信桌面端自身的问题，网页代码无法强制它接收。
+// 所以桌面端直接跳过"系统分享"这一步，改成更可靠的"直接下载，让你自己手动拖进微信"。
+function isMobileDevice(){
+  const uaString = navigator.userAgent || '';
+  if(/Android|iPhone|iPad|iPod/i.test(uaString)) return true;
+  if(navigator.userAgentData && navigator.userAgentData.mobile === true) return true;
+  return false;
+}
+
 async function sharePdfBlob(blob, fileName){
   const file = new File([blob], fileName, { type: 'application/pdf' });
 
-  if(navigator.canShare && navigator.canShare({ files: [file] })){
+  const canTrySystemShare = isMobileDevice() && navigator.canShare && navigator.canShare({ files: [file] });
+
+  if(canTrySystemShare){
     try{
       await navigator.share({ files: [file], title: fileName });
       return;
@@ -844,7 +858,7 @@ async function sharePdfBlob(blob, fileName){
     }
   }
 
-  // 不支持系统分享 / 分享失败时，退化为直接下载，用户仍可手动发给微信好友
+  // 桌面端 / 不支持系统分享 / 分享失败时，直接下载到本机，用户可自行拖入微信、QQ等聊天窗口发送
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -853,7 +867,9 @@ async function sharePdfBlob(blob, fileName){
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  showToast('当前设备不支持直接分享，已改为下载PDF，可手动发送给微信好友');
+  showToast(isMobileDevice()
+    ? '当前设备不支持直接分享，已改为下载PDF，可手动发送给微信好友'
+    : 'PDF已下载到本机，请在微信/QQ聊天窗口里手动选择该文件发送');
 }
 
 /* =========================================================
