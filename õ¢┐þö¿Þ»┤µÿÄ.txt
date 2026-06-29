@@ -1,0 +1,18 @@
+把这两个文件上传覆盖到 GitHub 仓库根目录：
+
+1. app.js
+2. service-worker.js
+
+然后打开 app.js，找到：
+
+const BAIDU_APP_KEY = '请把这里替换成你的百度AppKey';
+
+把引号里的内容替换成百度开发者后台的 App Key（client_id），不是 App Secret。
+
+百度后台 OAuth 授权回调页保持：
+https://jiujiaoheisan.github.io/CaiFeng/index.html
+
+上传后 GitHub Pages 可能有缓存。service-worker.js 已经把缓存版本从 v2 改成 v3，方便强制更新。
+如果页面还是旧的，浏览器里打开：
+https://jiujiaoheisan.github.io/CaiFeng/app.js
+按 Ctrl+F5 强刷，确认能看到新的 BAIDU_APP_KEY 注释。

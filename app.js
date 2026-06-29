@@ -560,7 +560,10 @@ function confirmAddRecord(){
 /* =========================================================
    百度网盘云同步（简化模式 OAuth，纯前端，无自建服务器）
    ========================================================= */
-const BAIDU_APP_KEY = 'JUCcGJeRHRVIebHWcQsRH1b18IvWiwVA';
+// ⚠️ 这里必须填百度开发者后台的 App Key（client_id），不是 App Secret。
+// 如果填错/应用不存在/应用被停用，百度会返回 invalid_client / unknown client_id。
+// 你的回调地址需要在后台配置为： https://jiujiaoheisan.github.io/CaiFeng/index.html
+const BAIDU_APP_KEY = '请把这里替换成你的百度AppKey';
 const BAIDU_REDIRECT_URI = 'https://jiujiaoheisan.github.io/CaiFeng/index.html';
 const BAIDU_AUTH_STORAGE_KEY = 'garmentArchive.baiduAuth.v1';
 const BAIDU_SYNC_PATH = '/apps/裁档衣样图录/sync-data.json'; // 网盘里固定存放同步数据的位置
@@ -596,8 +599,21 @@ function clearBaiduAuth(){
 
 // 页面加载时检查网址末尾是否带着百度跳转回来的登录令牌（#access_token=...），有就解析出来存好，并清掉网址里的痕迹
 function checkBaiduAuthRedirect(){
-  if(!window.location.hash || window.location.hash.indexOf('access_token=') === -1) return;
-  const params = new URLSearchParams(window.location.hash.slice(1));
+  const hash = window.location.hash || '';
+  const query = window.location.search || '';
+
+  // 百度授权失败时，有些错误会带在 query 里，有些会带在 hash 里；这里都兼容显示。
+  const errorParams = new URLSearchParams((hash.startsWith('#') ? hash.slice(1) : hash) || (query.startsWith('?') ? query.slice(1) : query));
+  const err = errorParams.get('error');
+  const errDesc = errorParams.get('error_description') || errorParams.get('error_msg');
+  if(err){
+    showToast('百度授权失败：' + err + (errDesc ? ' / ' + errDesc : ''));
+    console.warn('百度授权失败：', err, errDesc);
+    return;
+  }
+
+  if(hash.indexOf('access_token=') === -1) return;
+  const params = new URLSearchParams(hash.slice(1));
   const token = params.get('access_token');
   const expiresIn = parseInt(params.get('expires_in'), 10) || 86400;
   if(token){
@@ -609,14 +625,25 @@ function checkBaiduAuthRedirect(){
 }
 
 function startBaiduLogin(){
+  const appKey = String(BAIDU_APP_KEY || '').trim();
+  if(!appKey || appKey.includes('请把这里替换')){
+    showToast('请先在 app.js 里填写百度 App Key');
+    console.error('缺少百度 App Key：请把 BAIDU_APP_KEY 改成百度开发者后台的 App Key/client_id。');
+    return;
+  }
+
   const state = Math.random().toString(36).slice(2);
+  sessionStorage.setItem('baidu_oauth_state', state);
+
   const authUrl = 'https://openapi.baidu.com/oauth/2.0/authorize'
     + '?response_type=token'
-    + '&client_id=' + encodeURIComponent(BAIDU_APP_KEY)
+    + '&client_id=' + encodeURIComponent(appKey)
     + '&redirect_uri=' + encodeURIComponent(BAIDU_REDIRECT_URI)
     + '&scope=' + encodeURIComponent('basic,netdisk')
-    + '&display=mobile'
-    + '&state=' + state;
+    + '&display=page'
+    + '&state=' + encodeURIComponent(state);
+
+  console.log('即将跳转百度 OAuth：', authUrl);
   window.location.href = authUrl;
 }
 
