@@ -557,6 +557,356 @@ function confirmAddRecord(){
 }
 
 /* ---------- export / import backup ---------- */
+/* =========================================================
+   百度网盘云同步（简化模式 OAuth，纯前端，无自建服务器）
+   ========================================================= */
+const BAIDU_APP_KEY = 'JUCcGJeRHRVIebHWcQsRH1b18IvWiwVA';
+const BAIDU_REDIRECT_URI = 'https://jiujiaoheisan.github.io/CaiFeng/index.html';
+const BAIDU_AUTH_STORAGE_KEY = 'garmentArchive.baiduAuth.v1';
+const BAIDU_SYNC_PATH = '/apps/裁档衣样图录/sync-data.json'; // 网盘里固定存放同步数据的位置
+const BAIDU_LAST_SYNC_KEY = 'garmentArchive.lastSyncAt.v1';
+
+let baiduAuth = null; // { access_token, expires_at }
+
+function loadBaiduAuth(){
+  try{
+    const raw = localStorage.getItem(BAIDU_AUTH_STORAGE_KEY);
+    baiduAuth = raw ? JSON.parse(raw) : null;
+    if(baiduAuth && baiduAuth.expires_at && Date.now() > baiduAuth.expires_at){
+      baiduAuth = null; // 已过期，当作未登录
+      localStorage.removeItem(BAIDU_AUTH_STORAGE_KEY);
+    }
+  }catch(e){
+    baiduAuth = null;
+  }
+}
+
+function saveBaiduAuth(accessToken, expiresInSeconds){
+  baiduAuth = {
+    access_token: accessToken,
+    expires_at: Date.now() + (expiresInSeconds*1000)
+  };
+  localStorage.setItem(BAIDU_AUTH_STORAGE_KEY, JSON.stringify(baiduAuth));
+}
+
+function clearBaiduAuth(){
+  baiduAuth = null;
+  localStorage.removeItem(BAIDU_AUTH_STORAGE_KEY);
+}
+
+// 页面加载时检查网址末尾是否带着百度跳转回来的登录令牌（#access_token=...），有就解析出来存好，并清掉网址里的痕迹
+function checkBaiduAuthRedirect(){
+  if(!window.location.hash || window.location.hash.indexOf('access_token=') === -1) return;
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  const token = params.get('access_token');
+  const expiresIn = parseInt(params.get('expires_in'), 10) || 86400;
+  if(token){
+    saveBaiduAuth(token, expiresIn);
+    showToast('百度网盘登录成功');
+  }
+  // 清掉网址末尾的令牌信息，避免刷新/分享时泄露
+  history.replaceState(null, '', window.location.pathname + window.location.search);
+}
+
+function startBaiduLogin(){
+  const state = Math.random().toString(36).slice(2);
+  const authUrl = 'https://openapi.baidu.com/oauth/2.0/authorize'
+    + '?response_type=token'
+    + '&client_id=' + encodeURIComponent(BAIDU_APP_KEY)
+    + '&redirect_uri=' + encodeURIComponent(BAIDU_REDIRECT_URI)
+    + '&scope=' + encodeURIComponent('basic,netdisk')
+    + '&display=mobile'
+    + '&state=' + state;
+  window.location.href = authUrl;
+}
+
+function baiduLogout(){
+  clearBaiduAuth();
+  updateSyncModalView();
+  showToast('已退出百度网盘登录（如需彻底解除授权，请到百度网盘App的账号管理里操作）');
+}
+
+function syncLog(msg){
+  const el = document.getElementById('syncLog');
+  if(!el) return;
+  el.style.display = 'block';
+  el.textContent += (el.textContent ? '\n' : '') + msg;
+  el.scrollTop = el.scrollHeight;
+}
+function syncLogClear(){
+  const el = document.getElementById('syncLog');
+  if(el){ el.style.display='none'; el.textContent=''; }
+}
+
+// 把当前数据打包成跟“导出备份”一样的JSON，上传到百度网盘固定路径（覆盖式同步，不做多版本管理）
+async function syncUploadToBaidu(){
+  if(!baiduAuth){ showToast('请先登录百度网盘'); return; }
+  syncLogClear();
+  syncLog('准备上传数据…');
+
+  const payload = {
+    app: 'garment-archive',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    records
+  };
+  const jsonText = JSON.stringify(payload);
+  const fileBytes = new TextEncoder().encode(jsonText);
+
+  try{
+    syncLog('第1步：申请上传（precreate）…');
+    const precreateResp = await baiduApiCall('https://pan.baidu.com/rest/2.0/xpan/file', {
+      method: 'precreate',
+      extraParams: { path: BAIDU_SYNC_PATH, size: String(fileBytes.length), isdir: '0', autoinit: '1',
+        block_list: JSON.stringify([md5Hex(fileBytes)]) }
+    }, 'POST');
+
+    if(precreateResp.errno !== 0){
+      throw new Error('precreate失败，errno=' + precreateResp.errno + '（' + (precreateResp.errmsg||'未知错误') + '）');
+    }
+    const uploadId = precreateResp.uploadid;
+    syncLog('已获得上传任务，开始上传文件内容…');
+
+    syncLog('第2步：上传文件内容（superfile2）…');
+    const form = new FormData();
+    form.append('file', new Blob([fileBytes], {type:'application/json'}), 'sync-data.json');
+    const uploadUrl = 'https://d.pcs.baidu.com/rest/2.0/pcs/superfile2'
+      + '?method=upload'
+      + '&access_token=' + encodeURIComponent(baiduAuth.access_token)
+      + '&path=' + encodeURIComponent(BAIDU_SYNC_PATH)
+      + '&uploadid=' + encodeURIComponent(uploadId)
+      + '&partseq=0';
+    const uploadResp = await fetch(uploadUrl, { method:'POST', body: form });
+    const uploadJson = await uploadResp.json();
+    if(uploadJson.error_code){
+      throw new Error('文件内容上传失败：' + JSON.stringify(uploadJson));
+    }
+    syncLog('文件内容上传完成。');
+
+    syncLog('第3步：确认创建文件（create）…');
+    const createResp = await baiduApiCall('https://pan.baidu.com/rest/2.0/xpan/file', {
+      method: 'create',
+      extraParams: { path: BAIDU_SYNC_PATH, size: String(fileBytes.length), isdir: '0',
+        uploadid: uploadId, block_list: JSON.stringify([md5Hex(fileBytes)]), rtype: '3' }
+    }, 'POST');
+    if(createResp.errno !== 0){
+      throw new Error('create失败，errno=' + createResp.errno + '（' + (createResp.errmsg||'未知错误') + '）');
+    }
+
+    localStorage.setItem(BAIDU_LAST_SYNC_KEY, String(Date.now()));
+    syncLog('✓ 同步完成！数据已上传到网盘 ' + BAIDU_SYNC_PATH);
+    updateSyncModalView();
+    showToast('已同步到百度网盘');
+  }catch(err){
+    console.error('百度网盘同步上传失败', err);
+    syncLog('✗ 同步失败：' + err.message);
+    syncLog('（如果浏览器控制台显示 CORS / Cross-Origin 相关报错，说明百度的接口暂不支持网页直接访问，需要换个方案，请把这里的报错截图给我）');
+    showToast('同步失败，详情见同步面板里的日志');
+  }
+}
+
+// 从云端下载最新的同步文件，与本地数据合并（按id覆盖，逻辑跟“导入备份”一致）
+async function syncDownloadFromBaidu(){
+  if(!baiduAuth){ showToast('请先登录百度网盘'); return; }
+  syncLogClear();
+  syncLog('正在获取云端文件信息…');
+
+  try{
+    const metaResp = await baiduApiCall('https://pan.baidu.com/rest/2.0/xpan/multimedia', {
+      method: 'filemetas',
+      extraParams: { fsids: '', path: BAIDU_SYNC_PATH, dlink: '1' }
+    }, 'GET');
+
+    // 用filemanager的list接口获取该路径文件的dlink（不同版本接口字段略有差异，这里用list兜底）
+    const listResp = await baiduApiCall('https://pan.baidu.com/rest/2.0/xpan/file', {
+      method: 'list',
+      extraParams: { dir: '/apps/裁档衣样图录' }
+    }, 'GET');
+
+    if(listResp.errno !== 0){
+      throw new Error('获取云端文件列表失败，errno=' + listResp.errno + '（可能还没同步过，或者目录不存在）');
+    }
+    const fileEntry = (listResp.list||[]).find(f => f.path === BAIDU_SYNC_PATH);
+    if(!fileEntry){
+      throw new Error('云端还没有找到同步文件，请先在另一台设备上点一次"立即同步"');
+    }
+
+    syncLog('找到云端文件，开始下载内容…');
+    const dlink = fileEntry.dlink + '&access_token=' + encodeURIComponent(baiduAuth.access_token);
+    const fileResp = await fetch(dlink);
+    if(!fileResp.ok){
+      throw new Error('下载文件内容失败，HTTP状态码 ' + fileResp.status);
+    }
+    const data = await fileResp.json();
+    if(!data.records || !Array.isArray(data.records)){
+      throw new Error('云端文件格式不正确');
+    }
+
+    data.records.forEach(migrateRecordToMultiImage);
+    let added = 0, updated = 0;
+    data.records.forEach(incoming=>{
+      const idx = records.findIndex(r=>r.id===incoming.id);
+      if(idx >= 0){ records[idx] = incoming; updated++; }
+      else { records.push(incoming); added++; }
+    });
+    saveRecords();
+    renderList();
+    renderData();
+
+    localStorage.setItem(BAIDU_LAST_SYNC_KEY, String(Date.now()));
+    syncLog(`✓ 拉取完成：新增 ${added} 条，更新 ${updated} 条`);
+    updateSyncModalView();
+    showToast('已从云端同步最新数据');
+  }catch(err){
+    console.error('百度网盘同步下载失败', err);
+    syncLog('✗ 拉取失败：' + err.message);
+    syncLog('（如果浏览器控制台显示 CORS / Cross-Origin 相关报错，说明百度的接口暂不支持网页直接访问，需要换个方案，请把这里的报错截图给我）');
+    showToast('拉取失败，详情见同步面板里的日志');
+  }
+}
+
+// 统一处理百度网盘接口调用（自动带上access_token，GET用query string，POST用x-www-form-urlencoded）
+async function baiduApiCall(baseUrl, { method, extraParams }, httpMethod){
+  const params = new URLSearchParams({
+    method,
+    access_token: baiduAuth.access_token,
+    ...extraParams
+  });
+  let resp;
+  if(httpMethod === 'GET'){
+    resp = await fetch(baseUrl + '?' + params.toString());
+  } else {
+    resp = await fetch(baseUrl + '?method=' + method + '&access_token=' + encodeURIComponent(baiduAuth.access_token), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: (()=>{ const p2 = new URLSearchParams(extraParams); return p2.toString(); })()
+    });
+  }
+  return await resp.json();
+}
+
+// 百度上传接口要求提供文件内容真实的MD5（创建文件时会校验，传错会导致create失败），
+// 但浏览器内置WebCrypto不支持MD5算法，所以这里用一份精简的纯JS MD5实现来算真实值。
+function md5Hex(bytes){
+  function toUtf8Bytes(){ return bytes; } // 已经是Uint8Array，直接用
+  function safeAdd(x,y){ const lsw=(x&0xffff)+(y&0xffff); const msw=(x>>16)+(y>>16)+(lsw>>16); return (msw<<16)|(lsw&0xffff); }
+  function bitRotateLeft(num,cnt){ return (num<<cnt)|(num>>>(32-cnt)); }
+  function md5cmn(q,a,b,x,s,t){ return safeAdd(bitRotateLeft(safeAdd(safeAdd(a,q),safeAdd(x,t)),s),b); }
+  function md5ff(a,b,c,d,x,s,t){ return md5cmn((b&c)|((~b)&d),a,b,x,s,t); }
+  function md5gg(a,b,c,d,x,s,t){ return md5cmn((b&d)|(c&(~d)),a,b,x,s,t); }
+  function md5hh(a,b,c,d,x,s,t){ return md5cmn(b^c^d,a,b,x,s,t); }
+  function md5ii(a,b,c,d,x,s,t){ return md5cmn(c^(b|(~d)),a,b,x,s,t); }
+
+  function md5cycle(x, k){
+    let a=x[0], b=x[1], c=x[2], d=x[3];
+    a=md5ff(a,b,c,d,k[0],7,-680876936); d=md5ff(d,a,b,c,k[1],12,-389564586);
+    c=md5ff(c,d,a,b,k[2],17,606105819); b=md5ff(b,c,d,a,k[3],22,-1044525330);
+    a=md5ff(a,b,c,d,k[4],7,-176418897); d=md5ff(d,a,b,c,k[5],12,1200080426);
+    c=md5ff(c,d,a,b,k[6],17,-1473231341); b=md5ff(b,c,d,a,k[7],22,-45705983);
+    a=md5ff(a,b,c,d,k[8],7,1770035416); d=md5ff(d,a,b,c,k[9],12,-1958414417);
+    c=md5ff(c,d,a,b,k[10],17,-42063); b=md5ff(b,c,d,a,k[11],22,-1990404162);
+    a=md5ff(a,b,c,d,k[12],7,1804603682); d=md5ff(d,a,b,c,k[13],12,-40341101);
+    c=md5ff(c,d,a,b,k[14],17,-1502002290); b=md5ff(b,c,d,a,k[15],22,1236535329);
+    a=md5gg(a,b,c,d,k[1],5,-165796510); d=md5gg(d,a,b,c,k[6],9,-1069501632);
+    c=md5gg(c,d,a,b,k[11],14,643717713); b=md5gg(b,c,d,a,k[0],20,-373897302);
+    a=md5gg(a,b,c,d,k[5],5,-701558691); d=md5gg(d,a,b,c,k[10],9,38016083);
+    c=md5gg(c,d,a,b,k[15],14,-660478335); b=md5gg(b,c,d,a,k[4],20,-405537848);
+    a=md5gg(a,b,c,d,k[9],5,568446438); d=md5gg(d,a,b,c,k[14],9,-1019803690);
+    c=md5gg(c,d,a,b,k[3],14,-187363961); b=md5gg(b,c,d,a,k[8],20,1163531501);
+    a=md5gg(a,b,c,d,k[13],5,-1444681467); d=md5gg(d,a,b,c,k[2],9,-51403784);
+    c=md5gg(c,d,a,b,k[7],14,1735328473); b=md5gg(b,c,d,a,k[12],20,-1926607734);
+    a=md5hh(a,b,c,d,k[5],4,-378558); d=md5hh(d,a,b,c,k[8],11,-2022574463);
+    c=md5hh(c,d,a,b,k[11],16,1839030562); b=md5hh(b,c,d,a,k[14],23,-35309556);
+    a=md5hh(a,b,c,d,k[1],4,-1530992060); d=md5hh(d,a,b,c,k[4],11,1272893353);
+    c=md5hh(c,d,a,b,k[7],16,-155497632); b=md5hh(b,c,d,a,k[10],23,-1094730640);
+    a=md5hh(a,b,c,d,k[13],4,681279174); d=md5hh(d,a,b,c,k[0],11,-358537222);
+    c=md5hh(c,d,a,b,k[3],16,-722521979); b=md5hh(b,c,d,a,k[6],23,76029189);
+    a=md5hh(a,b,c,d,k[9],4,-640364487); d=md5hh(d,a,b,c,k[12],11,-421815835);
+    c=md5hh(c,d,a,b,k[15],16,530742520); b=md5hh(b,c,d,a,k[2],23,-995338651);
+    a=md5ii(a,b,c,d,k[0],6,-198630844); d=md5ii(d,a,b,c,k[7],10,1126891415);
+    c=md5ii(c,d,a,b,k[14],15,-1416354905); b=md5ii(b,c,d,a,k[5],21,-57434055);
+    a=md5ii(a,b,c,d,k[12],6,1700485571); d=md5ii(d,a,b,c,k[3],10,-1894986606);
+    c=md5ii(c,d,a,b,k[10],15,-1051523); b=md5ii(b,c,d,a,k[1],21,-2054922799);
+    a=md5ii(a,b,c,d,k[8],6,1873313359); d=md5ii(d,a,b,c,k[15],10,-30611744);
+    c=md5ii(c,d,a,b,k[6],15,-1560198380); b=md5ii(b,c,d,a,k[13],21,1309151649);
+    a=md5ii(a,b,c,d,k[4],6,-145523070); d=md5ii(d,a,b,c,k[11],10,-1120210379);
+    c=md5ii(c,d,a,b,k[2],15,718787259); b=md5ii(b,c,d,a,k[9],21,-343485551);
+    x[0]=safeAdd(a,x[0]); x[1]=safeAdd(b,x[1]); x[2]=safeAdd(c,x[2]); x[3]=safeAdd(d,x[3]);
+  }
+
+  function md5blk(s){
+    const md5blks = [];
+    for(let i=0;i<64;i+=4){
+      md5blks[i>>2] = s[i] + (s[i+1]<<8) + (s[i+2]<<16) + (s[i+3]<<24);
+    }
+    return md5blks;
+  }
+
+  function rstr2hex(input){
+    const hexChars = '0123456789abcdef';
+    let output = '';
+    for(let i=0;i<input.length;i++){
+      const x = input.charCodeAt(i);
+      output += hexChars.charAt((x>>4)&0x0F) + hexChars.charAt(x&0x0F);
+    }
+    return output;
+  }
+
+  function md51(s){
+    const n = s.length;
+    const state = [1732584193,-271733879,-1732584194,271733878];
+    let i;
+    for(i=64;i<=n;i+=64){ md5cycle(state, md5blk(s.slice(i-64,i))); }
+    s = s.slice(i-64);
+    const tail = new Array(16).fill(0);
+    for(i=0;i<s.length;i++){ tail[i>>2] |= s[i] << ((i%4)<<3); }
+    tail[i>>2] |= 0x80 << ((i%4)<<3);
+    if(i > 55){
+      md5cycle(state, tail);
+      for(i=0;i<16;i++) tail[i]=0;
+    }
+    tail[14] = n*8;
+    md5cycle(state, tail);
+    return state;
+  }
+
+  // bytes 是 Uint8Array，转成普通数组方便按字节切片处理
+  const arr = Array.from(bytes);
+  const state = md51(arr);
+  let out = '';
+  for(let i=0;i<4;i++){
+    out += String.fromCharCode(state[i]&0xff, (state[i]>>8)&0xff, (state[i]>>16)&0xff, (state[i]>>24)&0xff);
+  }
+  return rstr2hex(out);
+}
+
+function updateSyncModalView(){
+  const loggedOutView = document.getElementById('syncLoggedOutView');
+  const loggedInView = document.getElementById('syncLoggedInView');
+  const syncDot = document.getElementById('syncDot');
+  if(baiduAuth){
+    loggedOutView.style.display = 'none';
+    loggedInView.style.display = 'block';
+    syncDot.style.display = 'block';
+    const lastSync = localStorage.getItem(BAIDU_LAST_SYNC_KEY);
+    document.getElementById('syncStatusText').textContent = lastSync
+      ? '上次同步：' + new Date(parseInt(lastSync,10)).toLocaleString('zh-CN')
+      : '尚未同步';
+  } else {
+    loggedOutView.style.display = 'block';
+    loggedInView.style.display = 'none';
+    syncDot.style.display = 'none';
+  }
+}
+
+function openSyncModal(){
+  updateSyncModalView();
+  document.getElementById('syncModal').classList.add('show');
+}
+function closeSyncModal(){
+  document.getElementById('syncModal').classList.remove('show');
+}
+
 function exportBackup(){
   const payload = {
     app: 'garment-archive',
@@ -1097,6 +1447,8 @@ function bindViewerControls(){
 /* ---------- wire up ---------- */
 function init(){
   loadRecords();
+  loadBaiduAuth();
+  checkBaiduAuthRedirect();
   renderList();
   renderData();
 
@@ -1137,6 +1489,14 @@ function init(){
 
   document.getElementById('tabImages').addEventListener('click', ()=> showMobilePane('images'));
   document.getElementById('tabData').addEventListener('click', ()=> showMobilePane('data'));
+
+  // 百度网盘云同步
+  document.getElementById('syncBtn').addEventListener('click', openSyncModal);
+  document.getElementById('closeSyncModal').addEventListener('click', closeSyncModal);
+  document.getElementById('baiduLoginBtn').addEventListener('click', startBaiduLogin);
+  document.getElementById('baiduLogoutBtn').addEventListener('click', baiduLogout);
+  document.getElementById('syncNowBtn').addEventListener('click', syncUploadToBaidu);
+  document.getElementById('syncDownloadBtn').addEventListener('click', syncDownloadFromBaidu);
 
   // close modals on overlay click
   document.querySelectorAll('.modal-overlay').forEach(ov=>{
